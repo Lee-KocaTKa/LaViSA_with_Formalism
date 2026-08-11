@@ -1,0 +1,18 @@
+# Slurm Logs 
+slurm-*.out 
+slurm-*.err 
+
+# Experiment Outputs 
+outputs/
+*.log 
+
+# Python 
+__pycache__/
+*.pyc vllm-py312/
+
+# Dataset
+data/ 
+
+# Experimental Outputs 
+outputs/ 
+
