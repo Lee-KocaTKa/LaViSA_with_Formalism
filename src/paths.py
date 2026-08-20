@@ -5,6 +5,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]  # Resolve : pathabsolutisati
 
 DATA_DIR = PROJECT_ROOT / "data" 
 LAVISA_DIR = DATA_DIR / "lavisa" 
+JCRE3_DIR = DATA_DIR / "jcre3"
+
+JCRE3_IMAGE_DIR = JCRE3_DIR / "images" 
+JCRE3_JSON_DIR = JCRE3_DIR / "jsons" 
 
 ORIG_DIR = LAVISA_DIR / "original" 
 ORIG_JSONS = ORIG_DIR / "jsons" 

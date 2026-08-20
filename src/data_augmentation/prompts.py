@@ -1,6 +1,86 @@
 from __future__ import annotations 
 
-from typing import Any, Dict, List 
+from typing import Any, Dict, List
+
+AMBIGUITY_CATEGORIES = {
+    "pp": {
+        "name": "Prepositional Phrase Attachment Ambiguity",
+        "description": (
+            "Ambiguity arises when a prepositional phrase can attach to different "
+            "parts of the sentence, leading to multiple interpretations."
+        ),
+        "example_caption": "The man saw the girl with a telescope.",        
+    "example_interpretation": (
+            "The man has the telescope and saw the girl."
+    ),
+    },
+    "vp": {
+        "name": "Verb Phrase Attachment Ambiguity",
+        "description": (
+            "Ambiguity arises when a verb phrase can attach to different "
+            "parts of the sentence, leading to multiple interpretations."
+        ),
+        "example_caption": "The man saw the girl approaching the house.",
+        "example_interpretation": (
+            "The man saw the girl while she was approaching the house."
+    ),  
+    },
+    "anaph": {
+        "name": "Anaphora Ambiguity",
+        "description": (
+            "Ambiguity arises when a pronoun or noun phrase can refer to multiple "
+            "antecedents, leading to multiple interpretations."
+        ),
+        "example_caption": "The man saw the girl and the woman, she was blonde.",
+        "example_interpretation": (
+            "The woman was blonde, not the girl."
+        )
+    },
+    "ellip": {
+        "name": "Ellipsis Ambiguity",
+        "description": (
+            "Ambiguity arises when a part of the sentence is omitted, leading to "
+            "multiple interpretations."
+        ),
+        "example_caption": "The lion chased the tiger, also the bear.",
+        "example_interpretation": (
+            "The lion chased the tiger, and also chased the bear."
+        )
+    },
+    "adj": {
+        "name": "Adjective Scope Ambiguity",
+        "description": (
+            "Ambiguity arises when an adjective can modify different parts of the "
+            "sentence, leading to multiple interpretations."
+        ),
+        "example_caption": "The yellow bag and chair.",
+        "example_interpretation": (
+            "The bag is yellow, but the chair is not."
+        ),
+    },
+    "vb": {
+        "name": "Verb Scope Ambiguity",
+        "description": (
+            "Ambiguity arises when a verb can have different scopes, leading to "
+            "multiple interpretations."
+        ),
+        "example_caption": "An elephant and a bird flying.",
+        "example_interpretation": (
+            "The elephant is flying as well as the bird."
+        ),
+    },
+    "conj": {
+        "name": "Conjunction Ambiguity",
+        "description": (
+            "Ambiguity arises when a conjunction can connect different parts of the "
+            "sentence, leading to multiple interpretations."
+        ),
+        "example_caption": "The man saw the girl and the boy or the woman.",
+        "example_interpretation": (
+            "The man saw the girl and the boy, but not the woman."
+        ),  
+    }
+}
 
 
 def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> List[str]:
@@ -15,22 +95,45 @@ def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> List[str]:
     
     for interpretation in interpretations:
         lines = [
-            "Your job is to generate an S-expression formalism for a given structurally ambiguous caption."
-            "You will be provided with an ambiguous caption and a claryfing interpretation.",
-            "Due to structural ambiguity, the given ambiguous caption can be parsed into multiple S-expressions, and a given interpretation will help you determine the correct S-expression formalism.",
-            "So, your task is to generate the S-expression formalism for the given ambiguous caption, which reflects the meaning of the given interpretation.",
-            "Please ensure that the generated S-expression formalism is syntactically correct and accurately represents the intended meaning of the ambiguous caption based on the provided interpretation.",
+            (
+                "Your job is to generate an S-expression formalism for a "
+                "structurally ambiguous caption."
+            ),
+            (
+                "You will be provided with an ambiguous caption and a "
+                "clarifying interpretation."
+            ),
+            (
+                "Because of structural ambiguity, the caption can correspond "
+                "to multiple syntactic-semantic structures. The clarifying "
+                "interpretation specifies which structure is intended."
+            ),
+            (
+                "Generate the S-expression formalism corresponding to the "
+                "intended interpretation while preserving the lexical content "
+                "of the original ambiguous caption."
+            ),
             "",
             "Example:",
-            "Ambiguous caption: 'The man saw the girl with a telescope.'",
-            "Interpretation: 'The man used a telescope to see the girl.'",
-            "S-expression formalism: (S (NP The man) (VP saw (NP the girl) (PP with (NP a telescope))))",
+            "Ambiguous caption: \"The man saw the girl with a telescope.\"",
+            (
+                "Interpretation: "
+                "\"The man used a telescope to see the girl.\""
+            ),
+            (
+                "S-expression formalism: "
+                "(S (NP The man) "
+                "(VP saw (NP the girl) (PP with (NP a telescope))))"
+            ),
             "",
-            "Now, please generate the S-expression formalism for the following ambiguous caption and interpretation:",
+            "Now process the following example:",
             f'Ambiguous caption: "{ambiguous_caption}"',
-            f'Interpretation: "{interpretation}"', 
+            f'Interpretation: "{interpretation}"',
             "",
-            "Please provide your answer as a string of S-expression formalism without any additional text or explanation.",
+            (
+                "Return only the S-expression as a single string. "
+                "Do not provide explanations, Markdown, or additional text."
+            ),
         ]
         
         prompt = "\n".join(lines)
@@ -38,32 +141,80 @@ def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> List[str]:
         
     return prompts
     
-def build_realimage_based_caption_augmentation_prompt(None) -> List[str]:
+def build_realimage_based_caption_augmentation_prompts() -> Dict[str, str]:
     # Prompt to augment realimages with captions dealing with as many as structural ambiguities as possible 
     # Input: a real image (mostly from JCRE3)
     # Output: A bunch of ambiguous caption with clarifying interpretation affiliated with either of 7 categories defined by LaViSA
     
-    lines = [
-        "Your job is to generate structurally ambiguous captions for a given real image, along with clarifying interpretations that resolve the ambiguity.",
-        "You will be provided with a real image, and your task is to think of a structurally ambiguous caption, and the interpretataion that could be derived from the given image.",
-        "There are seven categories of structural ambiguity defined by our research, and I want you to generate captions associated with each category as possible.",
-        "",
-        "Here are the seven categories of structural ambiguity:",
-        "1. Prepositional Phrase Attachment Ambiguity (pp): Ambiguity arises when a prepositional phrase can attach to different parts of the sentence, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the man saw the girl with a telescope. interpretation: the man has the telescope and saw the girl"
-        "2. Verb Phrase Attachment Ambiguity (vp): Ambiguity arises when a verb phrase can attach to different parts of the sentence, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the man saw the girl approaching the house. interpretation: the man saw the girl while she was approaching the house", 
-        "3. Anaphora Ambiguity (anaph): Ambiguity arises when a pronoun or noun phrase can refer to multiple antecedents, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the man saw the girl and the woman, she was blonde. interpretation: the woman was blonde, not the girl",
-        "4. Ellipsis Ambiguity (ellip): Ambiguity arises when a part of the sentence is omitted, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the lion chased the tiger, also the bear. interpretation: the lion chased the tiger, and also chased the bear",
-        "5. Adjective Scope Ambiguity (adj): Ambiguity arises when an adjective can modify different parts of the sentence, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the yellow bag and chair. interpretation: the bag is yellow, but the chair is not",
-        "6. Verb Scope Ambiguity (vb): Ambiguity arises when a verb can have different scopes, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: An elephant and a bird flying. interpretation: the elephant is flying as well as the bird",
-        "7. Conjunction Ambiguity (conj): Ambiguity arises when a conjunction can connect different parts of the sentence, leading to multiple interpretations.",
-        "e.g. ambiguous sentence: the man saw the girl and the boy or the woman. interpretation: the man saw the girl and the boy, but not the woman",
-        "",
-        "Now, please generate structurally ambiguous captions for the given real image, along with clarifying interpretations that resolve the ambiguity. Please ensure that the generated captions and interpretations are syntactically correct and accurately represent the intended meaning of the image based on the provided categories of structural ambiguity.",
-        "Please provide your answer as a list of tuples, where each tuple contains a structurally ambiguous caption and its corresponding clarifying interpretation. Each tuple should be formatted as follows: (ambiguous caption, clarifying interpretation). Please do not include any additional text or explanation.",
-    ]
+    prompts: List[str] = [] 
+    
+    for category, info in AMBIGUITY_CATEGORIES.items():
+        lines = [
+            (
+                "Your job is to generate a structurally ambiguous caption "
+                "for the provided real image."
+            ),
+            "",
+            f"Target ambiguity category: {category}",
+            f"Category name: {info['name']}",
+            f"Definition: {info['description']}",
+            "",
+            "Example:",
+            f"Ambiguous caption: {info['example_caption']}",
+            f"Interpretation: {info['example_interpretation']}",
+            "",
+            (
+                "Inspect the provided image and determine whether a natural "
+                "caption exhibiting this specific type of structural "
+                "ambiguity can be constructed from the visible scene."
+            ),
+            "",
+            "Requirements:",
+            (
+                "- The ambiguous caption must have at least two plausible "
+                "structural interpretations."
+            ),
+            (
+                "- The ambiguity must arise specifically from the target "
+                "category."
+            ),
+            (
+                "- The clarifying interpretation must describe the "
+                "interpretation supported by the provided image."
+            ),
+            (
+                "- Do not invent objects, people, attributes, or actions "
+                "that are not reasonably supported by the image."
+            ),
+            (
+                "- The caption should sound like a natural description "
+                "of the image."
+            ),
+            (
+                "- If the image cannot naturally support this ambiguity "
+                "category, do not force an example."
+            ),
+            "",
+            "Return only valid JSON in one of the following forms:",
+            "",
+            "{",
+            '  "valid": true,',
+            f'  "category": "{category}",',
+            '  "ambiguous_caption": "...",',
+            '  "interpretation": "..."',
+            "}",
+            "",
+            "or",
+            "",
+            "{",
+            '  "valid": false,',
+            f'  "category": "{category}",',
+            '  "ambiguous_caption": null,',
+            '  "interpretation": null',
+            "}",
+        ]
+        
+        prompt = "\n".join(lines)
+        prompts.append(prompt)
+    
+    return prompts
