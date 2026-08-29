@@ -54,7 +54,7 @@ class GeminiModel:
         response = self.client.models.generate_content(
             model=self.model_card, 
             contents=contents, 
-            config=types.GenerateConfig(
+            config=types.GenerateContentConfig(
                 max_output_tokens=(
                     max_output_tokens or self.max_output_tokens  
                 ),

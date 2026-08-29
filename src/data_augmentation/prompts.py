@@ -83,18 +83,15 @@ AMBIGUITY_CATEGORIES = {
 }
 
 
-def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> List[str]:
+def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> str:
     # Prompt for formalism-based data augmentation
-    # input: ambiguous caption, and interpretations based on which the formalism semantics is determined
-    # output: a list of prompts for each interpretation
+    # input: ambiguous caption, and interpretation based on which the formalism semantics is determined
+    # output: a prompt for the interpretation
     
     ambiguous_caption = sample["ambiguous_caption"] 
-    interpretations = sample["interpretations"] 
-
-    prompts: List[str] = []
+    interpretation = sample["interpretation"] 
     
-    for interpretation in interpretations:
-        lines = [
+    lines = [
             (
                 "Your job is to generate an S-expression formalism for a "
                 "structurally ambiguous caption."
@@ -136,10 +133,9 @@ def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> List[str]:
             ),
         ]
         
-        prompt = "\n".join(lines)
-        prompts.append(prompt)
+    prompt = "\n".join(lines)
         
-    return prompts
+    return prompt
     
 def build_realimage_based_caption_augmentation_prompts() -> Dict[str, str]:
     # Prompt to augment realimages with captions dealing with as many as structural ambiguities as possible 

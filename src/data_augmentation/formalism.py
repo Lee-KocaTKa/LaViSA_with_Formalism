@@ -26,32 +26,8 @@ def generate_formalisms(
     }
     """
 
-    prompts = build_formalism_augmentation_prompt(sample)
+    prompt = build_formalism_augmentation_prompt(sample)
+    response = model.generate(prompt=prompt)
+    sample["formalism"] = response 
 
-    interpretations = sample["interpretations"]
-
-    if len(prompts) != len(interpretations):
-        raise ValueError(
-            "The number of prompts does not match "
-            "the number of interpretations."
-        )
-
-    formalism_results = []
-
-    for interpretation, prompt in zip(
-        interpretations,
-        prompts,
-    ):
-        response = model.generate(prompt=prompt)
-
-        formalism_results.append(
-            {
-                "interpretation": interpretation,
-                "formalism": response,
-            }
-        )
-
-    return {
-        "ambiguous_caption": sample["ambiguous_caption"],
-        "formalisms": formalism_results,
-    }
+    return sample
