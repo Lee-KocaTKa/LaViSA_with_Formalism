@@ -92,46 +92,56 @@ def build_formalism_augmentation_prompt(sample: Dict[str, Any]) -> str:
     interpretation = sample["interpretation"] 
     
     lines = [
-            (
-                "Your job is to generate an S-expression formalism for a "
-                "structurally ambiguous caption."
-            ),
-            (
-                "You will be provided with an ambiguous caption and a "
-                "clarifying interpretation."
-            ),
-            (
-                "Because of structural ambiguity, the caption can correspond "
-                "to multiple syntactic-semantic structures. The clarifying "
-                "interpretation specifies which structure is intended."
-            ),
-            (
-                "Generate the S-expression formalism corresponding to the "
-                "intended interpretation while preserving the lexical content "
-                "of the original ambiguous caption."
-            ),
-            "",
-            "Example:",
-            "Ambiguous caption: \"The man saw the girl with a telescope.\"",
-            (
-                "Interpretation: "
-                "\"The man used a telescope to see the girl.\""
-            ),
-            (
-                "S-expression formalism: "
-                "(S (NP The man) "
-                "(VP saw (NP the girl) (PP with (NP a telescope))))"
-            ),
-            "",
-            "Now process the following example:",
-            f'Ambiguous caption: "{ambiguous_caption}"',
-            f'Interpretation: "{interpretation}"',
-            "",
-            (
-                "Return only the S-expression as a single string. "
-                "Do not provide explanations, Markdown, or additional text."
-            ),
-        ]
+    (
+        "Your job is to generate an Abstract Meaning Representation (AMR) "
+        "for a structurally ambiguous caption."
+    ),
+    (
+        "You will be provided with an ambiguous caption and a "
+        "clarifying interpretation."
+    ),
+    (
+        "Because of structural ambiguity, the caption can correspond "
+        "to multiple semantic structures. The clarifying interpretation "
+        "specifies which meaning is intended."
+    ),
+    (
+        "Generate a standard AMR graph in PENMAN notation that represents "
+        "the intended meaning of the ambiguous caption."
+    ),
+    (
+        "The AMR must reflect the semantic relations specified by the "
+        "clarifying interpretation, including predicate-argument relations, "
+        "attachment, coreference, scope, or coordination when relevant."
+    ),
+    (
+        "Use standard AMR conventions and PropBank-style predicate senses "
+        "where appropriate."
+    ),
+    "",
+    "Example:",
+    'Ambiguous caption: "The man saw the girl with a telescope."',
+    (
+        "Interpretation: "
+        '"The man used a telescope to see the girl."'
+    ),
+    (
+        "AMR: "
+        "(s / see-01 "
+        ":ARG0 (m / man) "
+        ":ARG1 (g / girl) "
+        ":instrument (t / telescope))"
+    ),
+    "",
+    "Now process the following example:",
+    f'Ambiguous caption: "{ambiguous_caption}"',
+    f'Interpretation: "{interpretation}"',
+    "",
+    (
+        "Return only the AMR graph in valid PENMAN notation as a single string. "
+        "Do not provide explanations, Markdown, comments, or additional text."
+    ),
+]
         
     prompt = "\n".join(lines)
         
