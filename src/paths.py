@@ -15,7 +15,7 @@ ORIG_JSONS = ORIG_DIR / "jsons"
 ORIG_IMAGES = ORIG_DIR / "images"
 
 AUGMENTED_DIR = LAVISA_DIR / "augmented"
-AUGMENTED_JSONS = AUGMENTED_DIR / "jsons"
+AUGMENTED_JSONS = AUGMENTED_DIR / "jsons" / "augmented_annotated.json"
 AUGMENTED_IMAGES = AUGMENTED_DIR / "images"
 
 REVISED_DIR = LAVISA_DIR / "revised"
@@ -23,5 +23,7 @@ REVISED_JSONS = REVISED_DIR / "jsons"
 REVISED_IMAGES = REVISED_DIR / "images"
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs" 
+AMR_GENERATION_OUTPUT_DIR = OUTPUTS_DIR / "amr_generation"
+
 CONFIGS_DIR = PROJECT_ROOT / "configs" 
 
