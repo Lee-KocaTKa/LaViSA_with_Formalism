@@ -150,7 +150,7 @@ def build_amr_generation_prompt(
     return "\n".join(lines)
 
 
-def build_amr_verification_prompt(
+def build_yes_or_no_prompt(
     sample: Dict[str, Any],
 ) -> str:
     """
@@ -160,7 +160,7 @@ def build_amr_verification_prompt(
     The image itself is passed separately to the VLM.
     """
 
-    amr = sample["amr"]
+    amr = sample["formalism"]
 
     lines = [
         (
@@ -199,6 +199,7 @@ def build_amr_verification_prompt(
 
 def build_i2t_matching_prompt(
     sample: Dict[str, Any],
+    num_option: int
 ) -> str:
     """
     Task:
@@ -209,37 +210,73 @@ def build_i2t_matching_prompt(
 
     amr_1 = sample["amr_1"]
     amr_2 = sample["amr_2"]
+    amr_3 = sample["amr_3"] if num_option == 3 else None
 
-    lines = [
-        (
-            "Your job is to select which Abstract Meaning Representation (AMR) "
-            "best corresponds to the provided image."
-        ),
-        (
-            "The two AMRs represent different semantic interpretations of the "
-            "same structurally ambiguous caption."
-        ),
-        (
-            "Compare the visual scene with the semantic structure of each AMR, "
-            "including predicate-argument relations, attachment, coreference, "
-            "scope, and coordination when relevant."
-        ),
-        "",
-        "Option 1:",
-        amr_1,
-        "",
-        "Option 2:",
-        amr_2,
-        "",
-        (
-            "Select the AMR whose semantic interpretation is best supported "
-            "by the image."
-        ),
-        (
-            'Return only "1" or "2". '
-            "Do not provide explanations, Markdown, comments, or additional text."
-        ),
-    ]
+    if num_option == 2:
+        lines = [
+            (
+                "Your job is to select which Abstract Meaning Representation (AMR) "
+                "best corresponds to the provided image."
+            ),
+            (
+                "The two AMRs represent different semantic interpretations of the "
+                "same structurally ambiguous caption."
+            ),
+            (
+                "Compare the visual scene with the semantic structure of each AMR, "
+                "including predicate-argument relations, attachment, coreference, "
+                "scope, and coordination when relevant."
+            ),
+            "",
+            "Option 1:",
+            amr_1,
+            "",
+            "Option 2:",
+            amr_2,
+            "",
+            (
+                "Select the AMR whose semantic interpretation is best supported "
+                "by the image."
+            ),
+            (
+                'Return only "1" or "2". '
+                "Do not provide explanations, Markdown, comments, or additional text."
+            ),
+        ]
+    else:
+        lines = [
+            (
+                "Your job is to select which Abstract Meaning Representation (AMR) "
+                "best corresponds to the provided image."
+            ),
+            (
+                "The three AMRs represent different semantic interpretations of the "
+                "same structurally ambiguous caption."
+            ),
+            (
+                "Compare the visual scene with the semantic structure of each AMR, "
+                "including predicate-argument relations, attachment, coreference, "
+                "scope, and coordination when relevant."
+            ),
+            "",
+            "Option 1:",
+            amr_1,
+            "",
+            "Option 2:",
+            amr_2,
+            "",
+            "Option 3:",
+            amr_3,
+            "",
+            (
+                "Select the AMR whose semantic interpretation is best supported "
+                "by the image."
+            ),
+            (
+                'Return only "1", "2" or "3". '
+                "Do not provide explanations, Markdown, comments, or additional text."
+            ),
+        ]
 
     return "\n".join(lines)
 
@@ -255,7 +292,7 @@ def build_t2i_matching_prompt(
     as Image 1 and Image 2 in this prompt.
     """
 
-    amr = sample["amr"]
+    amr = sample["formalism"]
 
     lines = [
         (
@@ -280,13 +317,16 @@ def build_t2i_matching_prompt(
         (
             "The second provided image is Image 2."
         ),
+        (
+            "If the third image is provided, it is Image 3."  
+        ),
         "",
         (
             "Select the image whose visual scene best matches the semantic "
             "interpretation represented by the AMR."
         ),
         (
-            'Return only "1" or "2". '
+            'Return only "1", "2" or "3". (if Image 3 exists) '
             "Do not provide explanations, Markdown, comments, or additional text."
         ),
     ]

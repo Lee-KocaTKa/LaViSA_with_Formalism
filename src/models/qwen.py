@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Sequence 
 
 import torch
 
@@ -45,20 +46,24 @@ class QwenModel:
     def generate(
         self,
         prompt: str,
-        image_path: str | Path | None = None,
+        image_paths: str | Path | Sequence[str | Path] | None = None,
         max_output_tokens: int | None = None,
     ) -> str:
         content = []
 
-        if image_path is not None:
-            image = self._load_image(image_path)
+        if image_paths is not None:
+            if isinstance(image_paths, (str, Path)):
+                image_paths = [image_paths]
 
-            content.append(
-                {
-                    "type": "image",
-                    "image": image,
-                }
-            )
+            for image_path in image_paths:
+                image = self._load_image(image_path)
+
+                content.append(
+                    {
+                        "type": "image",
+                        "image": image,
+                    }
+                )
 
         content.append(
             {
@@ -80,7 +85,7 @@ class QwenModel:
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-            enable_thinking=False 
+            enable_thinking=False,
         )
 
         inputs = inputs.to(self.model.device)
