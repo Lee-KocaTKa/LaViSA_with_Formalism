@@ -82,6 +82,55 @@ AMBIGUITY_CATEGORIES = {
     }
 }
 
+def build_ablation_generation_prompt(
+    sample: Dict[str, Any],
+) -> str:
+    """
+    Task:
+        ambiguous caption + clarifying image -> AMR
+
+    The image itself is passed separately to the VLM.
+    """
+
+    ambiguous_caption = sample["ambiguous_caption"]
+
+    lines = [
+    (
+        "Your task is to generate an Abstract Meaning Representation (AMR) "
+        "for a structurally ambiguous caption."
+    ),
+    (
+        "You will be provided with an ambiguous caption."
+    ),
+    (
+        "The caption can have multiple interpretations because of structural "
+        "ambiguity."
+    ),
+    (
+        "Generate a single AMR graph from the caption representing the most probable meaning."
+    ),
+    (
+        "The AMR should represent the semantic structure, "
+        "including predicate-argument relations, attachment, coreference, scope, "
+        "and coordination where relevant."
+    ),
+    (
+        "Follow standard AMR conventions and use PropBank predicate senses "
+        "and semantic roles where applicable."
+    ),
+    "",
+    f'Ambiguous caption: "{ambiguous_caption}"',
+    "",
+    (
+        "Return only one AMR graph in valid PENMAN notation. "
+        "Do not provide explanations, Markdown, code fences, comments, "
+        "or any additional text."
+    ),
+    ]
+
+    return "\n".join(lines)
+
+
 def build_amr_generation_prompt(
     sample: Dict[str, Any],
 ) -> str:
@@ -95,56 +144,38 @@ def build_amr_generation_prompt(
     ambiguous_caption = sample["ambiguous_caption"]
 
     lines = [
-        (
-            "Your job is to generate an Abstract Meaning Representation (AMR) "
-            "for a structurally ambiguous caption."
-        ),
-        (
-            "You will be provided with an ambiguous caption and a clarifying image."
-        ),
-        (
-            "Because of structural ambiguity, the caption can correspond to "
-            "multiple semantic structures. The image specifies which meaning "
-            "is intended."
-        ),
-        (
-            "Generate a standard AMR graph in PENMAN notation that represents "
-            "the meaning of the ambiguous caption as disambiguated by the image."
-        ),
-        (
-            "The AMR must reflect the semantic relations supported by the image, "
-            "including predicate-argument relations, attachment, coreference, "
-            "scope, or coordination when relevant."
-        ),
-        (
-            "Use standard AMR conventions and PropBank-style predicate senses "
-            "where appropriate."
-        ),
-        "",
-        "Example:",
-        'Ambiguous caption: "The man saw the girl with a telescope."',
-        (
-            "Suppose the image shows the man looking through a telescope "
-            "at the girl."
-        ),
-        (
-            "AMR: "
-            "(s / see-01 "
-            ":ARG0 (m / man) "
-            ":ARG1 (g / girl) "
-            ":instrument (t / telescope))"
-        ),
-        "",
-        "Now process the following example:",
-        f'Ambiguous caption: "{ambiguous_caption}"',
-        "",
-        (
-            "Use the provided image to determine the intended interpretation."
-        ),
-        (
-            "Return only the AMR graph in valid PENMAN notation as a single string. "
-            "Do not provide explanations, Markdown, comments, or additional text."
-        ),
+    (
+        "Your task is to generate an Abstract Meaning Representation (AMR) "
+        "for a structurally ambiguous caption."
+    ),
+    (
+        "You will be provided with an ambiguous caption and a clarifying image."
+    ),
+    (
+        "The caption can have multiple interpretations because of structural "
+        "ambiguity. Use the image to determine which interpretation is intended."
+    ),
+    (
+        "Generate a single AMR graph representing the meaning of the caption "
+        "as disambiguated by the image."
+    ),
+    (
+        "The AMR should represent the semantic structure supported by the image, "
+        "including predicate-argument relations, attachment, coreference, scope, "
+        "and coordination where relevant."
+    ),
+    (
+        "Follow standard AMR conventions and use PropBank predicate senses "
+        "and semantic roles where applicable."
+    ),
+    "",
+    f'Ambiguous caption: "{ambiguous_caption}"',
+    "",
+    (
+        "Return only one AMR graph in valid PENMAN notation. "
+        "Do not provide explanations, Markdown, code fences, comments, "
+        "or any additional text."
+    ),
     ]
 
     return "\n".join(lines)

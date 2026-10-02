@@ -26,7 +26,7 @@ def run_amr_generation(
 
         generated_amr = model.generate(
             prompt=prompt,
-            image_path=sample["image_path"],
+            image_paths=sample["image_path"],
         )
 
         result["generated_amr"] = generated_amr

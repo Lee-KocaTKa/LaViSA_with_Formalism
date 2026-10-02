@@ -41,13 +41,13 @@ class GeminiModel:
     def generate(
         self,
         prompt: str,
-        image_path: str | Path | None = None, 
+        image_paths: str | Path | None = None, 
         max_output_tokens: int | None = None, 
     ) -> str: 
         contents = [] 
         
-        if image_path is not None: 
-            contents.append(self._image_to_part(image_path)) 
+        if image_paths is not None: 
+            contents.append(self._image_to_part(image_paths)) 
             
         contents.append(prompt) 
         
@@ -58,6 +58,9 @@ class GeminiModel:
                 max_output_tokens=(
                     max_output_tokens or self.max_output_tokens  
                 ),
+                thinking_config=types.ThinkingConfig(
+                    thinking_level="minimal"
+                ), 
             ),
         )
         

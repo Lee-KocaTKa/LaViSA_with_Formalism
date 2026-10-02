@@ -3,16 +3,15 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import amr 
 from collections import defaultdict
 from pathlib import Path
 
+import amr
 import penman
 import smatch
 from tqdm import tqdm
 
-from src.evaluation.amr_generation_evaluation import (
-    compute_concept_f1_from_graphs,
+from src.evaluation.oldfile import (
     compute_srl_f1_from_graphs,
     encode_graph,
     find_duplicate_variables,
@@ -20,1418 +19,685 @@ from src.evaluation.amr_generation_evaluation import (
     normalize_graph_wsd,
 )
 
-
-LIGHT_METRICS = [
-    "concept_f1",
-    "srl_smatch",
-    "srl_smatch_no_wsd",
-    "unlabeled_srl_smatch",
-    "unlabeled_srl_smatch_no_wsd",
-]
+from src.paths import AUGMENTED_JSONS
 
 
 # ============================================================
-# Utilities
+# Category utilities
 # ============================================================
 
-def is_smatch_parseable(amr_string: str) -> bool:
+def get_category(sample: dict) -> str:
+    """
+    Example:
+        vp-100-a -> vp
+    """
+    return sample["interpretation_id"].split("-", 1)[0]
+
+
+def group_samples(
+    samples: list[dict],
+) -> dict[str, list[dict]]:
+
+    groups = defaultdict(list)
+
+    for sample in samples:
+        category = get_category(sample)
+        groups[category].append(sample)
+
+    return groups
+
+
+# ============================================================
+# Smatch parsing
+# ============================================================
+
+def is_smatch_parseable(
+    amr_string: str,
+) -> bool:
+    """
+    Check whether the AMR can be parsed by the parser
+    used by the Smatch implementation.
+    """
+
     try:
         parsed = amr.AMR.parse_AMR_line(
-            amr_string.replace("\n", " ")
+            " ".join(amr_string.split())
         )
         return parsed is not None
+
     except Exception:
         return False
-
-
-def get_category(
-    interpretation_id: str,
-) -> str:
-
-    return interpretation_id.split(
-        "-",
-        1,
-    )[0]
-
-
-def mean(
-    values: list[float],
-) -> float:
-
-    if not values:
-        return 0.0
-
-    return sum(
-        values
-    ) / len(
-        values
-    )
 
 
 # ============================================================
 # Smatch
 # ============================================================
 
-def build_smatch_stream(
-    amrs: list[str],
-) -> io.StringIO:
-
-    text = "\n\n".join(
-        amr.strip()
-        for amr in amrs
-    )
-
-    text += "\n\n"
-
-    return io.StringIO(
-        text
-    )
-
-
-def compute_corpus_smatch(
+def compute_smatch(
     gold_amrs: list[str],
     pred_amrs: list[str],
-) -> float:
+) -> float | None:
+    """
+    Compute Smatch F1.
 
-    if len(
-        gold_amrs
-    ) != len(
-        pred_amrs
-    ):
-        raise ValueError(
-            f"Gold/pred mismatch: "
-            f"{len(gold_amrs)} vs "
-            f"{len(pred_amrs)}"
-        )
+    Returns None if Smatch cannot parse or score the AMRs.
+
+    Single sample:
+        compute_smatch([gold], [pred])
+
+    Corpus:
+        compute_smatch(gold_amrs, pred_amrs)
+    """
 
     if not gold_amrs:
-        return 0.0
+        return None
 
-    gold_stream = build_smatch_stream(
-        gold_amrs
-    )
-
-    pred_stream = build_smatch_stream(
-        pred_amrs
-    )
-
-    results = list(
-        smatch.score_amr_pairs(
-            gold_stream,
-            pred_stream,
+    if len(gold_amrs) != len(pred_amrs):
+        raise ValueError(
+            "Gold and prediction counts do not match: "
+            f"{len(gold_amrs)} vs {len(pred_amrs)}"
         )
-    )
 
-    if not results:
-        return 0.0
-
-    precision, recall, f1 = (
-        results[-1]
-    )
-
-    return f1
-
-
-# ============================================================
-# Preparation
-# ============================================================
-
-def prepare_samples(
-    samples: list[dict],
-):
-    evaluated_samples = []
-
-    smatch_data = {
-        "overall": {
-            "gold": [],
-            "pred": [],
-            "gold_no_wsd": [],
-            "pred_no_wsd": [],
-        },
-        "by_category": defaultdict(
-            lambda: {
-                "gold": [],
-                "pred": [],
-                "gold_no_wsd": [],
-                "pred_no_wsd": [],
-            }
-        ),
-    }
-
-    validation_stats = {
-        "total_samples": len(
-            samples
-        ),
-
-        "generation_error": 0,
-        "missing_gold_amr": 0,
-        "missing_generated_amr": 0,
-
-        "generated_parse_failure": 0,
-        "generated_parse_valid": 0,
-
-        "generated_duplicate_variable": 0,
-        "generated_none_instance": 0,
-
-        "generated_strict_valid": 0,
-
-        "semantic_evaluable_samples": 0,
-        "smatch_evaluable_samples": 0,
-
-        "by_category": {},
-    }
-
-    category_stats = defaultdict(
-        lambda: {
-            "total": 0,
-            "parse_valid": 0,
-            "strict_valid": 0,
-            "semantic_evaluable": 0,
-            "smatch_evaluable": 0,
-            "duplicate_variable": 0,
-            "none_instance": 0,
-        }
-    )
-
-    print(
-        "Parsing and validating AMRs..."
-    )
-
-    for original_sample in tqdm(
-        samples,
-        desc="Parsing",
+    # Check every AMR before passing them to Smatch.
+    for gold_amr, pred_amr in zip(
+        gold_amrs,
+        pred_amrs,
     ):
+        if not is_smatch_parseable(gold_amr):
+            return None
 
-        sample = dict(
-            original_sample
-        )
+        if not is_smatch_parseable(pred_amr):
+            return None
 
-        interpretation_id = sample.get(
-            "interpretation_id",
-            "unknown",
-        )
+    gold_stream = io.StringIO(
+        "\n\n".join(gold_amrs) + "\n\n"
+    )
 
-        category = get_category(
-            interpretation_id
-        )
+    pred_stream = io.StringIO(
+        "\n\n".join(pred_amrs) + "\n\n"
+    )
 
-        sample[
-            "category"
-        ] = category
-
-        category_stats[
-            category
-        ][
-            "total"
-        ] += 1
-
-        sample["metrics"] = {
-            "concept_f1": None,
-            "srl_smatch": None,
-            "srl_smatch_no_wsd": None,
-            "unlabeled_srl_smatch": None,
-            "unlabeled_srl_smatch_no_wsd": None,
-        }
-
-        gold_amr = sample.get(
-            "gold_amr"
-        )
-
-        pred_amr = sample.get(
-            "generated_amr"
-        )
-
-        existing_error = sample.get(
-            "error"
-        )
-
-        # ----------------------------------------------------
-        # Generation error
-        # ----------------------------------------------------
-
-        if existing_error is not None:
-
-            validation_stats[
-                "generation_error"
-            ] += 1
-
-            sample[
-                "evaluation_error"
-            ] = (
-                f"Generation error: "
-                f"{existing_error}"
-            )
-
-            evaluated_samples.append(
-                sample
-            )
-
-            continue
-
-        # ----------------------------------------------------
-        # Missing AMRs
-        # ----------------------------------------------------
-
-        if not gold_amr:
-
-            validation_stats[
-                "missing_gold_amr"
-            ] += 1
-
-            sample[
-                "evaluation_error"
-            ] = (
-                "Missing gold AMR"
-            )
-
-            evaluated_samples.append(
-                sample
-            )
-
-            continue
-
-        if not pred_amr:
-
-            validation_stats[
-                "missing_generated_amr"
-            ] += 1
-
-            sample[
-                "evaluation_error"
-            ] = (
-                "Missing generated AMR"
-            )
-
-            evaluated_samples.append(
-                sample
-            )
-
-            continue
-
-        # ----------------------------------------------------
-        # Duplicate variables
-        # ----------------------------------------------------
-
-        duplicate_variables = (
-            find_duplicate_variables(
-                pred_amr
+    try:
+        scores = list(
+            smatch.score_amr_pairs(
+                gold_stream,
+                pred_stream,
             )
         )
 
-        if duplicate_variables:
+    except Exception:
+        return None
 
-            validation_stats[
-                "generated_duplicate_variable"
-            ] += 1
+    if not scores:
+        return None
 
-            category_stats[
-                category
-            ][
-                "duplicate_variable"
-            ] += 1
+    # precision, recall, f1
+    return scores[-1][2]
+
+
+# ============================================================
+# Per-sample evaluation
+# ============================================================
+
+def evaluate_sample(
+    sample: dict,
+) -> dict:
+
+    sample = dict(sample)
+
+    sample["valid"] = False
+    sample["invalid_reason"] = None
+    sample["metric_error"] = None
+
+    sample["metrics"] = {
+        "smatch": None,
+        "smatch_no_wsd": None,
+        "srl": None,
+        "srl_no_wsd": None,
+    }
+
+    interpretation_id = sample.get(
+        "interpretation_id",
+        "unknown",
+    )
+
+    gold_amr = sample.get("gold_amr")
+    pred_amr = sample.get("generated_amr")
+
+    # --------------------------------------------------------
+    # Gold existence
+    # --------------------------------------------------------
+
+    if not gold_amr:
+        raise ValueError(
+            f"Missing gold AMR: {interpretation_id}"
+        )
+
+    # --------------------------------------------------------
+    # Prediction existence
+    # --------------------------------------------------------
+
+    if not pred_amr:
+        sample["invalid_reason"] = (
+            "missing_prediction"
+        )
+        return sample
+
+    if sample.get("error") is not None:
+        sample["invalid_reason"] = (
+            "generation_error"
+        )
+        return sample
+
+    # --------------------------------------------------------
+    # Duplicate variable definitions
+    # --------------------------------------------------------
+
+    if find_duplicate_variables(pred_amr):
+        sample["invalid_reason"] = (
+            "duplicate_variables"
+        )
+        return sample
+
+    # --------------------------------------------------------
+    # Parse gold with PENMAN
+    #
+    # Gold failure = reference/dataset problem.
+    # --------------------------------------------------------
+
+    try:
+        gold_graph = penman.decode(
+            gold_amr
+        )
+
+    except Exception as exc:
+        raise ValueError(
+            "Gold PENMAN parse error: "
+            f"{interpretation_id}"
+        ) from exc
+
+    # --------------------------------------------------------
+    # Parse prediction with PENMAN
+    #
+    # Prediction failure = invalid model output.
+    # --------------------------------------------------------
+
+    try:
+        pred_graph = penman.decode(
+            pred_amr
+        )
+
+    except Exception as exc:
+        sample["invalid_reason"] = (
+            "penman_parse_error"
+        )
+
+        sample["metric_error"] = (
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        return sample
+
+    # --------------------------------------------------------
+    # Missing instance concepts
+    # --------------------------------------------------------
+
+    if find_none_instances(pred_graph):
+        sample["invalid_reason"] = (
+            "none_instance"
+        )
+        return sample
+
+    # --------------------------------------------------------
+    # Gold Smatch parsing
+    #
+    # Again: gold failure = dataset problem.
+    # --------------------------------------------------------
+
+    if not is_smatch_parseable(gold_amr):
+        raise ValueError(
+            "Gold Smatch parse error: "
+            f"{interpretation_id}"
+        )
+
+    # --------------------------------------------------------
+    # Prediction Smatch parsing
+    # --------------------------------------------------------
+
+    if not is_smatch_parseable(pred_amr):
+        sample["invalid_reason"] = (
+            "smatch_parse_error"
+        )
+        return sample
+
+    # ========================================================
+    # Metric processing
+    #
+    # From this point onward, strange generated graphs can
+    # still break normalization, encoding, or scoring.
+    #
+    # Such failures should invalidate this prediction rather
+    # than terminate the entire evaluation.
+    # ========================================================
+
+    try:
 
         # ----------------------------------------------------
-        # Parse
+        # Standard Smatch
         # ----------------------------------------------------
 
-        try:
+        smatch_score = compute_smatch(
+            [gold_amr],
+            [pred_amr],
+        )
 
-            gold_graph = penman.decode(
-                gold_amr
+        if smatch_score is None:
+            sample["invalid_reason"] = (
+                "smatch_score_error"
             )
-
-            pred_graph = penman.decode(
-                pred_amr
-            )
-
-        except Exception as exc:
-
-            validation_stats[
-                "generated_parse_failure"
-            ] += 1
-
-            sample[
-                "evaluation_error"
-            ] = (
-                "PENMAN parse error: "
-                f"{exc}"
-            )
-
-            evaluated_samples.append(
-                sample
-            )
-
-            continue
-
-        validation_stats[
-            "generated_parse_valid"
-        ] += 1
-
-        category_stats[
-            category
-        ][
-            "parse_valid"
-        ] += 1
+            return sample
 
         # ----------------------------------------------------
-        # None instances
+        # Construct No-WSD graphs
         # ----------------------------------------------------
 
-        none_instances = (
-            find_none_instances(
+        gold_no_wsd = encode_graph(
+            normalize_graph_wsd(
+                gold_graph
+            )
+        )
+
+        pred_no_wsd = encode_graph(
+            normalize_graph_wsd(
                 pred_graph
             )
         )
 
-        if none_instances:
+        # ----------------------------------------------------
+        # No-WSD Smatch
+        # ----------------------------------------------------
 
-            validation_stats[
-                "generated_none_instance"
-            ] += 1
-
-            category_stats[
-                category
-            ][
-                "none_instance"
-            ] += 1
-
-        strict_valid = (
-            len(
-                duplicate_variables
-            ) == 0
-            and len(
-                none_instances
-            ) == 0
+        smatch_no_wsd = compute_smatch(
+            [gold_no_wsd],
+            [pred_no_wsd],
         )
 
-        if strict_valid:
-
-            validation_stats[
-                "generated_strict_valid"
-            ] += 1
-
-            category_stats[
-                category
-            ][
-                "strict_valid"
-            ] += 1
-
-        sample[
-            "amr_validation"
-        ] = {
-            "duplicate_variables":
-                duplicate_variables,
-
-            "none_instance_variables":
-                none_instances,
-
-            "strict_valid":
-                strict_valid,
-        }
+        if smatch_no_wsd is None:
+            sample["invalid_reason"] = (
+                "no_wsd_smatch_error"
+            )
+            return sample
 
         # ----------------------------------------------------
-        # Concept + SRL metrics
+        # Coordination-normalized SRL F1
         # ----------------------------------------------------
 
-        try:
+        srl = compute_srl_f1_from_graphs(
+            gold_graph,
+            pred_graph,
+        )
 
-            concept = (
-                compute_concept_f1_from_graphs(
-                    gold_graph,
-                    pred_graph,
-                )
-            )
+        # ----------------------------------------------------
+        # Coordination-normalized SRL F1, No-WSD
+        # ----------------------------------------------------
 
-            srl = (
-                compute_srl_f1_from_graphs(
-                    gold_graph,
-                    pred_graph,
-                    labeled=True,
-                )
-            )
-
-            unlabeled_srl = (
-                compute_srl_f1_from_graphs(
-                    gold_graph,
-                    pred_graph,
-                    labeled=False,
-                )
-            )
-            
-            srl_no_wsd = compute_srl_f1_from_graphs(
+        srl_no_wsd = (
+            compute_srl_f1_from_graphs(
                 gold_graph,
                 pred_graph,
-                labeled=True,
                 remove_wsd=True,
             )
+        )
 
-            unlabeled_srl_no_wsd = compute_srl_f1_from_graphs(
-                gold_graph,
-                pred_graph,
-                labeled=False,
-                remove_wsd=True,
-            )
+    except Exception as exc:
 
-            sample[
-                "metrics"
-            ][
-                "concept_f1"
-            ] = concept.f1
+        sample["invalid_reason"] = (
+            "metric_processing_error"
+        )
 
-            sample[
-                "metrics"
-            ][
-                "srl_smatch"
-            ] = srl.f1
-            
-            sample[
-                "metrics"
-            ][
-                "srl_smatch_no_wsd"
-                        ] = srl_no_wsd.f1
-            
+        sample["metric_error"] = (
+            f"{type(exc).__name__}: {exc}"
+        )
 
-            sample[
-                "metrics"
-            ][
-                "unlabeled_srl_smatch"
-            ] = unlabeled_srl.f1
-            
-            sample["metrics"]["unlabeled_srl_smatch_no_wsd"] = unlabeled_srl_no_wsd.f1 
+        return sample
 
-            validation_stats[
-                "semantic_evaluable_samples"
-            ] += 1
+    # --------------------------------------------------------
+    # Only save metrics after ALL metric processing succeeds.
+    # --------------------------------------------------------
 
-            category_stats[
-                category
-            ][
-                "semantic_evaluable"
-            ] += 1
+    sample["metrics"]["smatch"] = (
+        smatch_score
+    )
 
-        except Exception as exc:
+    sample["metrics"]["smatch_no_wsd"] = (
+        smatch_no_wsd
+    )
 
-            sample[
-                "evaluation_error"
-            ] = (
-                "Concept/SRL error: "
-                f"{exc}"
-            )
+    sample["metrics"]["srl"] = (
+        srl.f1
+    )
 
-            evaluated_samples.append(
-                sample
-            )
+    sample["metrics"]["srl_no_wsd"] = (
+        srl_no_wsd.f1
+    )
 
-            continue
+    sample["valid"] = True
 
-        # ----------------------------------------------------
-        # Prepare Smatch representations
-        # ----------------------------------------------------
+    return sample
 
-        try:
 
-            encoded_gold = (
-                encode_graph(
+# ============================================================
+# Aggregation
+# ============================================================
+
+def aggregate_group(
+    samples: list[dict],
+) -> dict:
+    """
+    Aggregate one collection of samples.
+
+    Smatch:
+        corpus-level Smatch over valid samples.
+
+    SRL:
+        macro-average of per-sample SRL F1.
+
+    Invalid predictions:
+        included in valid-rate denominator;
+        excluded from semantic metrics.
+    """
+
+    total = len(samples)
+
+    valid_samples = [
+        sample
+        for sample in samples
+        if sample["valid"]
+    ]
+
+    valid_count = len(valid_samples)
+
+    valid_rate = (
+        valid_count / total
+        if total > 0
+        else 0.0
+    )
+
+    # --------------------------------------------------------
+    # SRL macro-average
+    # --------------------------------------------------------
+
+    srl_scores = [
+        sample["metrics"]["srl"]
+        for sample in valid_samples
+    ]
+
+    srl_no_wsd_scores = [
+        sample["metrics"]["srl_no_wsd"]
+        for sample in valid_samples
+    ]
+
+    srl = (
+        sum(srl_scores)
+        / len(srl_scores)
+        if srl_scores
+        else 0.0
+    )
+
+    srl_no_wsd = (
+        sum(srl_no_wsd_scores)
+        / len(srl_no_wsd_scores)
+        if srl_no_wsd_scores
+        else 0.0
+    )
+
+    # --------------------------------------------------------
+    # Corpus Smatch
+    # --------------------------------------------------------
+
+    gold_amrs = [
+        sample["gold_amr"]
+        for sample in valid_samples
+    ]
+
+    pred_amrs = [
+        sample["generated_amr"]
+        for sample in valid_samples
+    ]
+
+    smatch_score = compute_smatch(
+        gold_amrs,
+        pred_amrs,
+    )
+
+    if valid_samples and smatch_score is None:
+        raise RuntimeError(
+            "Corpus Smatch failed even though "
+            "all individual samples were valid."
+        )
+
+    if smatch_score is None:
+        smatch_score = 0.0
+
+    # --------------------------------------------------------
+    # Corpus No-WSD Smatch
+    # --------------------------------------------------------
+
+    gold_no_wsd = []
+    pred_no_wsd = []
+
+    for sample in valid_samples:
+
+        gold_graph = penman.decode(
+            sample["gold_amr"]
+        )
+
+        pred_graph = penman.decode(
+            sample["generated_amr"]
+        )
+
+        gold_no_wsd.append(
+            encode_graph(
+                normalize_graph_wsd(
                     gold_graph
                 )
             )
+        )
 
-            encoded_pred = (
-                encode_graph(
+        pred_no_wsd.append(
+            encode_graph(
+                normalize_graph_wsd(
                     pred_graph
                 )
             )
-
-            gold_no_wsd = (
-                encode_graph(
-                    normalize_graph_wsd(
-                        gold_graph
-                    )
-                )
-            )
-
-            pred_no_wsd = (
-                encode_graph(
-                    normalize_graph_wsd(
-                        pred_graph
-                    )
-                )
-            )
-
-        except Exception as exc:
-
-            sample[
-                "evaluation_error"
-            ] = (
-                "Encoding error: "
-                f"{exc}"
-            )
-
-            evaluated_samples.append(
-                sample
-            )
-
-            continue
-
-        smatch_ok = (
-            is_smatch_parseable(encoded_gold) 
-            and is_smatch_parseable(encoded_pred)
-            and is_smatch_parseable(gold_no_wsd)
-            and is_smatch_parseable(pred_no_wsd)
         )
 
-        # ----------------------------------------------------
-        # Overall Smatch corpus
-        # ----------------------------------------------------
-
-        if smatch_ok:
-            
-            smatch_data[
-                "overall"
-            ][
-                "gold"
-            ].append(
-                encoded_gold
-            )
-
-            smatch_data[
-                "overall"
-            ][
-                "pred"
-            ].append(
-                encoded_pred
-            )
-
-            smatch_data[
-                "overall"
-            ][
-                "gold_no_wsd"
-            ].append(
-                gold_no_wsd
-            )
-
-            smatch_data[
-                "overall"
-            ][
-                "pred_no_wsd"
-            ].append(
-                pred_no_wsd
-            )
-
-        # ----------------------------------------------------
-        # Category Smatch corpus
-        # ----------------------------------------------------
-
-            category_data = (
-                smatch_data[
-                    "by_category"
-                ][
-                    category
-                ]
-            )
-
-            category_data[
-                "gold"
-            ].append(
-                encoded_gold
-            )
-
-            category_data[
-                "pred"
-            ].append(
-                encoded_pred
-            )
-
-            category_data[
-                "gold_no_wsd"
-            ].append(
-                gold_no_wsd
-            )
-
-            category_data[
-                "pred_no_wsd"
-            ].append(
-                pred_no_wsd
-            )
-
-            validation_stats[
-                "smatch_evaluable_samples"
-            ] += 1
-
-            category_stats[
-                category
-            ][
-                "smatch_evaluable"
-            ] += 1
-
-            evaluated_samples.append(
-                sample
-            )
-            
-        else:
-            sample["smatch_parse_valid"] = False
-            
-        sample["smatch_parse_valid"] = smatch_ok 
-
-    # ========================================================
-    # Rates
-    # ========================================================
-
-    total = validation_stats[
-        "total_samples"
-    ]
-
-    if total:
-
-        validation_stats[
-            "parse_valid_rate"
-        ] = (
-            validation_stats[
-                "generated_parse_valid"
-            ]
-            / total
-        )
-
-        validation_stats[
-            "strict_valid_rate"
-        ] = (
-            validation_stats[
-                "generated_strict_valid"
-            ]
-            / total
-        )
-
-        validation_stats[
-            "semantic_evaluable_rate"
-        ] = (
-            validation_stats[
-                "semantic_evaluable_samples"
-            ]
-            / total
-        )
-
-        validation_stats[
-            "smatch_evaluable_rate"
-        ] = (
-            validation_stats[
-                "smatch_evaluable_samples"
-            ]
-            / total
-        )
-
-    else:
-
-        validation_stats[
-            "parse_valid_rate"
-        ] = 0.0
-
-        validation_stats[
-            "strict_valid_rate"
-        ] = 0.0
-
-        validation_stats[
-            "semantic_evaluable_rate"
-        ] = 0.0
-
-        validation_stats[
-            "smatch_evaluable_rate"
-        ] = 0.0
-
-    # ========================================================
-    # Category validity
-    # ========================================================
-
-    for category in sorted(
-        category_stats
-    ):
-
-        stats = category_stats[
-            category
-        ]
-
-        category_total = stats[
-            "total"
-        ]
-
-        if category_total:
-
-            stats[
-                "parse_valid_rate"
-            ] = (
-                stats[
-                    "parse_valid"
-                ]
-                / category_total
-            )
-
-            stats[
-                "strict_valid_rate"
-            ] = (
-                stats[
-                    "strict_valid"
-                ]
-                / category_total
-            )
-
-            stats[
-                "semantic_evaluable_rate"
-            ] = (
-                stats[
-                    "semantic_evaluable"
-                ]
-                / category_total
-            )
-
-            stats[
-                "smatch_evaluable_rate"
-            ] = (
-                stats[
-                    "smatch_evaluable"
-                ]
-                / category_total
-            )
-
-        else:
-
-            stats[
-                "parse_valid_rate"
-            ] = 0.0
-
-            stats[
-                "strict_valid_rate"
-            ] = 0.0
-
-            stats[
-                "semantic_evaluable_rate"
-            ] = 0.0
-
-            stats[
-                "smatch_evaluable_rate"
-            ] = 0.0
-
-        validation_stats[
-            "by_category"
-        ][
-            category
-        ] = dict(
-            stats
-        )
-
-    return (
-        evaluated_samples,
-        smatch_data,
-        validation_stats,
+    smatch_no_wsd = compute_smatch(
+        gold_no_wsd,
+        pred_no_wsd,
     )
 
+    if (
+        valid_samples
+        and smatch_no_wsd is None
+    ):
+        raise RuntimeError(
+            "Corpus No-WSD Smatch failed even though "
+            "all individual samples were valid."
+        )
 
-# ============================================================
-# Lightweight metric aggregation
-# ============================================================
+    if smatch_no_wsd is None:
+        smatch_no_wsd = 0.0
 
-def aggregate_light_metrics(
+    return {
+        "n": total,
+        "valid": valid_count,
+        "valid_rate": valid_rate,
+        "smatch": smatch_score,
+        "smatch_no_wsd": smatch_no_wsd,
+        "srl": srl,
+        "srl_no_wsd": srl_no_wsd,
+    }
+
+
+def aggregate(
     samples: list[dict],
 ) -> dict:
 
-    overall = defaultdict(
-        list
+    result = {
+        "overall": aggregate_group(
+            samples
+        ),
+        "by_category": {},
+    }
+
+    groups = group_samples(
+        samples
     )
 
-    by_category = defaultdict(
-        lambda: defaultdict(
-            list
+    for (
+        category,
+        category_samples,
+    ) in groups.items():
+
+        result[
+            "by_category"
+        ][category] = aggregate_group(
+            category_samples
         )
-    )
+
+    return result
+
+
+# ============================================================
+# Invalid reason statistics
+# ============================================================
+
+def count_invalid_reasons(
+    samples: list[dict],
+) -> dict[str, int]:
+
+    counts = defaultdict(int)
 
     for sample in samples:
 
-        metrics = sample.get(
-            "metrics"
-        )
-
-        if not metrics:
+        if sample["valid"]:
             continue
 
-        category = sample.get(
-            "category"
-        )
-
-        for metric_name in LIGHT_METRICS:
-
-            score = metrics.get(
-                metric_name
-            )
-
-            if score is None:
-                continue
-
-            overall[
-                metric_name
-            ].append(
-                score
-            )
-
-            by_category[
-                category
-            ][
-                metric_name
-            ].append(
-                score
-            )
-
-    result = {
-        "overall": {},
-        "by_category": {},
-    }
-
-    for metric_name in LIGHT_METRICS:
-
-        values = overall.get(
-            metric_name,
-            [],
-        )
-
-        result[
-            "overall"
-        ][
-            metric_name
-        ] = {
-            "score": mean(
-                values
-            ),
-            "count": len(
-                values
-            ),
-        }
-
-    for category in sorted(
-        by_category
-    ):
-
-        result[
-            "by_category"
-        ][
-            category
-        ] = {}
-
-        for metric_name in LIGHT_METRICS:
-
-            values = (
-                by_category[
-                    category
-                ].get(
-                    metric_name,
-                    [],
-                )
-            )
-
-            result[
-                "by_category"
-            ][
-                category
-            ][
-                metric_name
-            ] = {
-                "score": mean(
-                    values
-                ),
-                "count": len(
-                    values
-                ),
-            }
-
-    return result
-
-
-# ============================================================
-# Smatch aggregation
-# ============================================================
-
-def compute_all_smatch_scores(
-    smatch_data: dict,
-) -> dict:
-
-    result = {
-        "overall": {},
-        "by_category": {},
-    }
-
-    overall = smatch_data[
-        "overall"
-    ]
-
-    print()
-    print(
-        f"Computing overall Smatch "
-        f"({len(overall['gold'])} samples)..."
-    )
-
-    result[
-        "overall"
-    ][
-        "smatch"
-    ] = {
-        "score": compute_corpus_smatch(
-            overall["gold"],
-            overall["pred"],
-        ),
-        "count": len(
-            overall["gold"]
-        ),
-    }
-
-    print(
-        "Computing overall "
-        "Smatch No-WSD..."
-    )
-
-    result[
-        "overall"
-    ][
-        "smatch_no_wsd"
-    ] = {
-        "score": compute_corpus_smatch(
-            overall[
-                "gold_no_wsd"
-            ],
-            overall[
-                "pred_no_wsd"
-            ],
-        ),
-        "count": len(
-            overall[
-                "gold_no_wsd"
-            ]
-        ),
-    }
-
-    for category, data in sorted(
-        smatch_data[
-            "by_category"
-        ].items()
-    ):
-
-        print()
-        print(
-            f"Computing {category} Smatch "
-            f"({len(data['gold'])} samples)..."
-        )
-
-        smatch_score = (
-            compute_corpus_smatch(
-                data["gold"],
-                data["pred"],
-            )
-        )
-
-        print(
-            f"Computing {category} "
-            f"Smatch No-WSD..."
-        )
-
-        no_wsd_score = (
-            compute_corpus_smatch(
-                data[
-                    "gold_no_wsd"
-                ],
-                data[
-                    "pred_no_wsd"
-                ],
-            )
-        )
-
-        result[
-            "by_category"
-        ][
-            category
-        ] = {
-            "smatch": {
-                "score":
-                    smatch_score,
-                "count":
-                    len(
-                        data["gold"]
-                    ),
-            },
-
-            "smatch_no_wsd": {
-                "score":
-                    no_wsd_score,
-                "count":
-                    len(
-                        data[
-                            "gold_no_wsd"
-                        ]
-                    ),
-            },
-        }
-
-    return result
-
-
-# ============================================================
-# Merge summaries
-# ============================================================
-
-def merge_summaries(
-    light_metrics: dict,
-    smatch_metrics: dict,
-) -> dict:
-
-    summary = {
-        "overall": {},
-        "by_category": {},
-    }
-
-    summary[
-        "overall"
-    ][
-        "smatch"
-    ] = smatch_metrics[
-        "overall"
-    ][
-        "smatch"
-    ]
-
-    summary[
-        "overall"
-    ][
-        "smatch_no_wsd"
-    ] = smatch_metrics[
-        "overall"
-    ][
-        "smatch_no_wsd"
-    ]
-
-    for metric_name in LIGHT_METRICS:
-
-        summary[
-            "overall"
-        ][
-            metric_name
-        ] = light_metrics[
-            "overall"
-        ][
-            metric_name
+        reason = sample[
+            "invalid_reason"
         ]
 
-    categories = sorted(
-        set(
-            light_metrics[
-                "by_category"
-            ].keys()
-        )
-        |
-        set(
-            smatch_metrics[
-                "by_category"
-            ].keys()
-        )
+        if reason is None:
+            reason = "unknown"
+
+        counts[reason] += 1
+
+    return dict(
+        sorted(counts.items())
     )
-
-    for category in categories:
-
-        summary[
-            "by_category"
-        ][
-            category
-        ] = {}
-
-        smatch_category = (
-            smatch_metrics[
-                "by_category"
-            ].get(
-                category,
-                {},
-            )
-        )
-
-        light_category = (
-            light_metrics[
-                "by_category"
-            ].get(
-                category,
-                {},
-            )
-        )
-
-        summary[
-            "by_category"
-        ][
-            category
-        ][
-            "smatch"
-        ] = smatch_category.get(
-            "smatch",
-            {
-                "score": 0.0,
-                "count": 0,
-            },
-        )
-
-        summary[
-            "by_category"
-        ][
-            category
-        ][
-            "smatch_no_wsd"
-        ] = smatch_category.get(
-            "smatch_no_wsd",
-            {
-                "score": 0.0,
-                "count": 0,
-            },
-        )
-
-        for metric_name in LIGHT_METRICS:
-
-            summary[
-                "by_category"
-            ][
-                category
-            ][
-                metric_name
-            ] = light_category.get(
-                metric_name,
-                {
-                    "score": 0.0,
-                    "count": 0,
-                },
-            )
-
-    return summary
 
 
 # ============================================================
 # Printing
 # ============================================================
 
-def print_validation_summary(
-    stats: dict,
-) -> None:
-
-    print()
-    print(
-        "=" * 90
-    )
-
-    print(
-        "AMR VALIDITY"
-    )
-
-    print(
-        "=" * 90
-    )
-
-    print(
-        f"Total samples:                 "
-        f"{stats['total_samples']}"
-    )
-
-    print(
-        f"Generation errors:             "
-        f"{stats['generation_error']}"
-    )
-
-    print(
-        f"Missing generated AMR:         "
-        f"{stats['missing_generated_amr']}"
-    )
-
-    print(
-        f"Generated parse failures:      "
-        f"{stats['generated_parse_failure']}"
-    )
-
-    print(
-        f"Duplicate-variable AMRs:       "
-        f"{stats['generated_duplicate_variable']}"
-    )
-
-    print(
-        f"None-instance AMRs:            "
-        f"{stats['generated_none_instance']}"
-    )
-
-    print()
-
-    print(
-        f"Parse-valid AMRs:              "
-        f"{stats['generated_parse_valid']} "
-        f"({stats['parse_valid_rate'] * 100:.2f}%)"
-    )
-
-    print(
-        f"Strict-valid AMRs:             "
-        f"{stats['generated_strict_valid']} "
-        f"({stats['strict_valid_rate'] * 100:.2f}%)"
-    )
-
-    print(
-        f"Semantic evaluable:            "
-        f"{stats['semantic_evaluable_samples']} "
-        f"({stats['semantic_evaluable_rate'] * 100:.2f}%)"
-    )
-
-    print(
-        f"Smatch evaluable:              "
-        f"{stats['smatch_evaluable_samples']} "
-        f"({stats['smatch_evaluable_rate'] * 100:.2f}%)"
-    )
-
-    print()
-    print(
-        "VALIDITY BY CATEGORY"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    print(
-        f"{'Category':<10}"
-        f"{'N':>7}"
-        f"{'Parse':>13}"
-        f"{'Strict':>13}"
-        f"{'Semantic':>13}"
-        f"{'Smatch':>13}"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    for category, data in (
-        stats[
-            "by_category"
-        ].items()
-    ):
-
-        print(
-            f"{category:<10}"
-            f"{data['total']:>7}"
-            f"{data['parse_valid_rate'] * 100:>12.2f}%"
-            f"{data['strict_valid_rate'] * 100:>12.2f}%"
-            f"{data['semantic_evaluable_rate'] * 100:>12.2f}%"
-            f"{data['smatch_evaluable_rate'] * 100:>12.2f}%"
-        )
-
-
-def print_metric_summary(
+def print_summary(
     summary: dict,
 ) -> None:
 
-    metric_order = [
-        "smatch",
-        "smatch_no_wsd",
-        "concept_f1",
-        "srl_smatch",
-        "srl_smatch_no_wsd",
-        "unlabeled_srl_smatch",
-        "unlabeled_srl_smatch_no_wsd",
-    ]
-
     print()
-    print(
-        "=" * 100
-    )
 
     print(
-        "AMR GENERATION METRICS"
+        f"{'Category':<10}"
+        f"{'N':>8}"
+        f"{'Valid':>10}"
+        f"{'Smatch':>10}"
+        f"{'No-WSD':>10}"
+        f"{'SRL':>10}"
+        f"{'SRL-NW':>10}"
     )
 
-    print(
-        "=" * 100
-    )
+    print("-" * 68)
 
-    print()
-    print(
-        "OVERALL"
-    )
+    rows = {
+        "all": summary["overall"],
+        **summary["by_category"],
+    }
 
-    print(
-        "-" * 65
-    )
-
-    print(
-        f"{'Metric':<32}"
-        f"{'Score':>12}"
-        f"{'N':>10}"
-    )
-
-    print(
-        "-" * 65
-    )
-
-    for metric_name in metric_order:
-
-        result = summary[
-            "overall"
-        ][
-            metric_name
-        ]
+    for category, result in rows.items():
 
         print(
-            f"{metric_name:<32}"
-            f"{result['score'] * 100:>11.2f}%"
-            f"{result['count']:>10}"
-        )
-
-    print()
-    print(
-        "BY CATEGORY"
-    )
-
-    print(
-        "-" * 120
-    )
-
-    header = (
-        f"{'Cat':<10}"
-    )
-
-    for metric_name in metric_order:
-
-        header += (
-            f"{metric_name:>22}"
-        )
-
-    print(
-        header
-    )
-
-    print(
-        "-" * len(
-            header
-        )
-    )
-
-    for category, results in (
-        summary[
-            "by_category"
-        ].items()
-    ):
-
-        row = (
             f"{category:<10}"
+            f"{result['n']:>8}"
+            f"{result['valid_rate'] * 100:>9.2f}%"
+            f"{result['smatch'] * 100:>9.2f}%"
+            f"{result['smatch_no_wsd'] * 100:>9.2f}%"
+            f"{result['srl'] * 100:>9.2f}%"
+            f"{result['srl_no_wsd'] * 100:>9.2f}%"
         )
 
-        for metric_name in metric_order:
 
-            result = results.get(
-                metric_name,
-                {
-                    "score": 0.0,
-                    "count": 0,
-                },
-            )
+def print_invalid_reasons(
+    invalid_reasons: dict[str, int],
+) -> None:
 
-            row += (
-                f"{result['score'] * 100:>15.2f}%"
-                f"({result['count']:>4})"
-            )
+    print()
+    print("Invalid generated AMRs")
+    print("-" * 40)
+
+    if not invalid_reasons:
+        print("None")
+        return
+
+    for reason, count in invalid_reasons.items():
 
         print(
-            row
+            f"{reason:<30}"
+            f"{count:>6}"
+        )
+
+
+# ============================================================
+# Replace old gold references
+# ============================================================
+
+def replace_gold_references(
+    samples: list[dict],
+    revised_reference: list[dict],
+) -> None:
+    """
+    Replace gold_amr in the generation output with the
+    revised reference formalism.
+
+    Every generated sample must have a revised reference.
+    """
+
+    reference_by_id = {
+        ref["interpretation_id"]:
+            ref["formalism"]
+        for ref in revised_reference
+    }
+
+    for sample in samples:
+
+        interpretation_id = (
+            sample["interpretation_id"]
+        )
+
+        if (
+            interpretation_id
+            not in reference_by_id
+        ):
+            raise ValueError(
+                "No revised gold reference for: "
+                f"{interpretation_id}"
+            )
+
+        sample["gold_amr"] = (
+            reference_by_id[
+                interpretation_id
+            ]
         )
 
 
@@ -1451,67 +717,113 @@ def main() -> None:
         "--input",
         type=Path,
         required=True,
+        help=(
+            "JSON file containing generated AMRs."
+        ),
     )
 
     parser.add_argument(
         "--output",
         type=Path,
         required=True,
+        help=(
+            "Output JSON path."
+        ),
     )
 
     args = parser.parse_args()
+
+    # --------------------------------------------------------
+    # Load generated AMRs
+    # --------------------------------------------------------
 
     with args.input.open(
         "r",
         encoding="utf-8",
     ) as f:
 
-        samples = json.load(
-            f
-        )
+        samples = json.load(f)
 
-    if not isinstance(
-        samples,
-        list,
-    ):
+    if not isinstance(samples, list):
         raise ValueError(
             "Input JSON must be a list."
         )
 
-    (
-        evaluated_samples,
-        smatch_data,
-        validation_stats,
-    ) = prepare_samples(
-        samples
+    # --------------------------------------------------------
+    # Load revised gold references
+    # --------------------------------------------------------
+
+    with AUGMENTED_JSONS.open(
+        "r",
+        encoding="utf-8",
+    ) as f:
+
+        revised_reference = json.load(f)
+
+    if not isinstance(
+        revised_reference,
+        list,
+    ):
+        raise ValueError(
+            "Revised reference JSON "
+            "must be a list."
+        )
+
+    # --------------------------------------------------------
+    # Replace old gold AMRs
+    # --------------------------------------------------------
+
+    replace_gold_references(
+        samples,
+        revised_reference,
     )
 
-    light_metrics = (
-        aggregate_light_metrics(
+    # --------------------------------------------------------
+    # Evaluate every sample
+    # --------------------------------------------------------
+
+    evaluated_samples = [
+        evaluate_sample(sample)
+        for sample in tqdm(
+            samples,
+            desc="Evaluating",
+        )
+    ]
+
+    # --------------------------------------------------------
+    # Aggregate results
+    # --------------------------------------------------------
+
+    summary = aggregate(
+        evaluated_samples
+    )
+
+    invalid_reasons = (
+        count_invalid_reasons(
             evaluated_samples
         )
     )
 
-    smatch_metrics = (
-        compute_all_smatch_scores(
-            smatch_data
-        )
+    # --------------------------------------------------------
+    # Print results
+    # --------------------------------------------------------
+
+    print_summary(
+        summary
     )
 
-    summary = merge_summaries(
-        light_metrics,
-        smatch_metrics,
+    print_invalid_reasons(
+        invalid_reasons
     )
+
+    # --------------------------------------------------------
+    # Save results
+    # --------------------------------------------------------
 
     output = {
-        "validation":
-            validation_stats,
-
-        "summary":
-            summary,
-
-        "samples":
-            evaluated_samples,
+        "summary": summary,
+        "invalid_reasons": invalid_reasons,
+        "samples": evaluated_samples,
     }
 
     args.output.parent.mkdir(
@@ -1531,18 +843,9 @@ def main() -> None:
             indent=2,
         )
 
-    print_validation_summary(
-        validation_stats
-    )
-
-    print_metric_summary(
-        summary
-    )
-
     print()
     print(
-        f"Saved to: "
-        f"{args.output}"
+        f"Saved to: {args.output}"
     )
 
 

@@ -27,7 +27,7 @@ def run_yes_or_no(
 
         answer = model.generate(
             prompt=prompt,
-            image_path=sample["image_path"],
+            image_paths=sample["image_path"],
         )
 
         result["yes_or_no"] = answer

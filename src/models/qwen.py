@@ -13,7 +13,7 @@ class QwenModel:
     def __init__(
         self,
         model_card: str,
-        max_output_tokens: int = 256,
+        max_output_tokens: int = 1024,
     ) -> None:
         self.model_card = model_card
         self.max_output_tokens = max_output_tokens
