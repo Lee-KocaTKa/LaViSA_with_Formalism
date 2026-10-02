@@ -13,7 +13,7 @@ class GeminiModel:
         self,
         model_card: str,
         api_key: str,
-        max_output_tokens: int = 256
+        max_output_tokens: int = 1024
     ) -> None: 
         self.model_card = model_card
         self.max_output_tokens = max_output_tokens

@@ -9,7 +9,7 @@ set -e
 
 cd /mnt/home/sangmyeong-l/research/LaViSA_with_Formalism
 
-MODEL_CARD="Qwen/Qwen3.5-4B"
+MODEL_CARD="Qwen/Qwen3.6-27B"
 #MODEL_CARD="google/gemma-4-E4B-it"
 
 echo "================================"
@@ -48,5 +48,5 @@ echo "Starting experiment"
 echo "Model: $MODEL_CARD"
 echo "================================"
 
-python -m scripts.exp_amr_generation "$MODEL_CARD"
-#python -m scripts.exp_ablation "$MODEL_CARD"
+#python -m scripts.exp_amr_generation "$MODEL_CARD"
+python -m scripts.exp_ablation "$MODEL_CARD"
