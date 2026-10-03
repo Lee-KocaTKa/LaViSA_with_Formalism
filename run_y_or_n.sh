@@ -10,7 +10,7 @@ set -e
 cd /mnt/home/sangmyeong-l/research/LaViSA_with_Formalism
 
 MODEL_CARD="Qwen/Qwen3.5-9B"
-MODEL_CARD="google/gemma-4-31B-it"
+MODEL_CARD="google/gemma-4-8B-it"
 
 echo "Running on:"
 hostname

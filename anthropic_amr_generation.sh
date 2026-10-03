@@ -11,4 +11,5 @@ MODEL_CARD=${1:-"claude-opus-5-5"}
 
 echo "Running AMR Generation Experiment with: $MODEL_CARD"
 
-python -m scripts.exp_amr_generation_anthropic "$MODEL_CARD"
+#python -m scripts.exp_amr_generation_anthropic "$MODEL_CARD"
+python -m scripts.exp_ablation_anthropic "$MODEL_CARD"
