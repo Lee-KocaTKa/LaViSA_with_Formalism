@@ -2,15 +2,15 @@
 
 #SBATCH --job-name=amr_qwen35_27b
 #SBATCH --partition=public
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
 
 set -e
 
 cd /mnt/home/sangmyeong-l/research/LaViSA_with_Formalism
 
-MODEL_CARD="Qwen/Qwen3.5-9B"
-MODEL_CARD="google/gemma-4-8B-it"
+MODEL_CARD="Qwen/Qwen3.5-2B"
+#MODEL_CARD="google/gemma-4-8B-it"
 
 echo "Running on:"
 hostname

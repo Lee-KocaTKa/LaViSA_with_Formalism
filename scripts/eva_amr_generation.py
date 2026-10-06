@@ -17,6 +17,7 @@ from src.evaluation.oldfile import (
     find_duplicate_variables,
     find_none_instances,
     normalize_graph_wsd,
+    compute_concept_f1_from_graphs
 )
 
 from src.paths import AUGMENTED_JSONS
@@ -154,6 +155,7 @@ def evaluate_sample(
         "smatch_no_wsd": None,
         "srl": None,
         "srl_no_wsd": None,
+        "concept_f1": None, 
     }
 
     interpretation_id = sample.get(
@@ -348,6 +350,13 @@ def evaluate_sample(
                 remove_wsd=True,
             )
         )
+        
+        concept = (
+            compute_concept_f1_from_graphs(
+                gold_graph, 
+                pred_graph 
+            )
+        )
 
     except Exception as exc:
 
@@ -379,6 +388,10 @@ def evaluate_sample(
 
     sample["metrics"]["srl_no_wsd"] = (
         srl_no_wsd.f1
+    )
+    
+    sample["metrics"]["concept_f1"] = (
+        concept.f1 
     )
 
     sample["valid"] = True
@@ -448,6 +461,17 @@ def aggregate_group(
         sum(srl_no_wsd_scores)
         / len(srl_no_wsd_scores)
         if srl_no_wsd_scores
+        else 0.0
+    )
+    
+    concept_scores = [
+        sample["metrics"]["concept_f1"]
+        for sample in valid_samples 
+    ]
+    
+    concept_f1 = (
+        sum(concept_scores) / len(concept_scores)
+        if concept_scores
         else 0.0
     )
 
@@ -537,6 +561,7 @@ def aggregate_group(
         "smatch_no_wsd": smatch_no_wsd,
         "srl": srl,
         "srl_no_wsd": srl_no_wsd,
+        "concept_f1": concept_f1 
     }
 
 
@@ -635,6 +660,7 @@ def print_summary(
             f"{result['smatch_no_wsd'] * 100:>9.2f}%"
             f"{result['srl'] * 100:>9.2f}%"
             f"{result['srl_no_wsd'] * 100:>9.2f}%"
+            f"{result['concept_f1'] * 100:>9.2f}%"
         )
 
 

@@ -34,7 +34,7 @@ def run_i2t(
 
         answer = model.generate(
             prompt=prompt,
-            image_path=sample["image_path"],
+            image_paths=sample["image_path"],
         )
 
         result["model_choice"] = answer

@@ -68,9 +68,13 @@ class ClaudeModel:
         content = []
 
         if image_paths is not None:
-            content.append(
-                self._image_to_content(image_paths)
-            )
+            if isinstance(image_paths, (str, Path)):
+                image_paths = [image_paths]
+            
+            for image_path in image_paths:
+                content.append(
+                    self._image_to_content(image_path)
+                )
 
         content.append(
             {

@@ -9,8 +9,8 @@ set -e
 
 cd /mnt/home/sangmyeong-l/research/LaViSA_with_Formalism
 
-MODEL_CARD="Qwen/Qwen3.6-27B"
-#MODEL_CARD="google/gemma-4-E4B-it"
+#MODEL_CARD="Qwen/Qwen3.6-27B"
+MODEL_CARD="google/gemma-4-12B-it"
 
 echo "================================"
 echo "Node:"
